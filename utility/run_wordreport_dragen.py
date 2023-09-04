@@ -88,105 +88,370 @@ def retrieveReadLength(fileName):
             lineNum += 1
     return(str(len(readSeq)))
 
-def parseXml(xmlRunParametersPath, xmlRunInfoPath, instrument, readLengths, indexLengths):
-    RTAVersion = "Unknown"
-    flowcell = "Unknown"
-    workFlowTypeValue = "Unknown"
-    flowcellModeValue = "Unknown"
-    chemistryValue = "Unknown"
-    chemistryVersionValue = "Unknown"
-    xmldoc = minidom.parse(xmlRunParametersPath)
-    tagRTA = ""
-    if instrument == "NovaSeq 6000" or instrument == "NextSeq 2000" or instrument == "iSeq":
-        tagRTA = "RtaVersion"
-    elif instrument == "HiSeq" or  instrument == "NextSeq 550" or instrument == "MiSeq":
-        tagRTA = "RTAVersion"
-    elif instrument == "NovaSeq Xplus":
-        RTAVersion = "RTA4"
-    if tagRTA:
-        cyc = xmldoc.getElementsByTagName(tagRTA)
-    else:
-        cyc = []
-    if len(cyc) > 0:
-        RTAVersion = cyc[0].childNodes[0].nodeValue
-    workFlowType = xmldoc.getElementsByTagName('WorkflowType')
-    if len(workFlowType) > 0:
-        workFlowTypeValue = workFlowType[0].childNodes[0].nodeValue
-    flowcellMode = xmldoc.getElementsByTagName('FlowCellMode')
-    if len(flowcellMode) > 0:
-        flowcellModeValue = flowcellMode[0].childNodes[0].nodeValue
-    chemistry = xmldoc.getElementsByTagName('Chemistry')
-    if len(chemistry) > 0:
-        chemistryValue = chemistry[0].childNodes[0].nodeValue
-    chemistryVersion = xmldoc.getElementsByTagName('ChemistryVersion')
-    if len(chemistryVersion) > 0:
-        chemistryVersionValue = chemistryVersion[0].childNodes[0].nodeValue
-    application = xmldoc.getElementsByTagName('Application')
-    if len(application) > 0:
-        applicaitonValue = application[0].childNodes[0].nodeValue
-    consumableInfo = xmldoc.getElementsByTagName('ConsumableInfo')
-    if len(consumableInfo) > 0:
-        flowcellModeValue = consumableInfo[0].getElementsByTagName('Mode')[0].childNodes[0].nodeValue
+def get_xml_value(xmldoc, tag_name):
+    elements = xmldoc.getElementsByTagName(tag_name)
+    if elements:
+        return elements[0].childNodes[0].nodeValue
+    return "Unknown"
 
+def parseXml(xmlRunParametersPath, xmlRunInfoPath, instrument, readLengths, indexLengths):
+    xmldoc = minidom.parse(xmlRunParametersPath)
+
+    # Determine RTA version based on instrument
+    rta_tags = {
+        "NovaSeq 6000": "RtaVersion",
+        "NextSeq 2000": "RtaVersion",
+        "iSeq": "RtaVersion",
+        "HiSeq": "RTAVersion",
+        "NextSeq 550": "RTAVersion",
+        "MiSeq": "RTAVersion"
+    }
+    tagRTA = rta_tags.get(instrument, "")
+    RTAVersion = get_xml_value(xmldoc, tagRTA) if tagRTA else "Unknown"
+    if instrument == "NovaSeq Xplus":
+        RTAVersion = "RTA4"
+
+    # Extract other XML values
+    workFlowTypeValue = get_xml_value(xmldoc, 'WorkflowType')
+    flowcellModeValue = get_xml_value(xmldoc, 'FlowCellMode')
+    chemistryValue = get_xml_value(xmldoc, 'Chemistry')
+    chemistryVersionValue = get_xml_value(xmldoc, 'ChemistryVersion')
+
+    # Special case for ConsumableInfo
+    consumableInfo = xmldoc.getElementsByTagName('ConsumableInfo')
+    if consumableInfo:
+        flowcellModeValue = get_xml_value(consumableInfo[0], 'Mode')
+
+    # Parse xmlRunInfoPath
     xmldoc = minidom.parse(xmlRunInfoPath)
     runInfoReads = xmldoc.getElementsByTagName('Read')
-    if len(runInfoReads) > 0:
-        for runInfoRead in runInfoReads:
-            if runInfoRead.getAttribute("IsIndexedRead") == "N":
-                readLengths.append(runInfoRead.getAttribute("NumCycles"))
-            elif runInfoRead.getAttribute("IsIndexedRead") == "Y":
-                indexLengths.append(runInfoRead.getAttribute("NumCycles"))
-    runInfoFlowcell = xmldoc.getElementsByTagName('Flowcell')
-    if len(runInfoFlowcell) > 0:
-        flowcell = runInfoFlowcell[0].childNodes[0].nodeValue
+    for runInfoRead in runInfoReads:
+        cycles = runInfoRead.getAttribute("NumCycles")
+        if runInfoRead.getAttribute("IsIndexedRead") == "N":
+            readLengths.append(cycles)
+        else:
+            indexLengths.append(cycles)
+
+    flowcell = get_xml_value(xmldoc, 'Flowcell')
+
     return (RTAVersion, flowcell, workFlowTypeValue, flowcellModeValue, chemistryValue, chemistryVersionValue)
 
 def getRunPath(sRunName):
-    instrument = ''
-    runPath = ''
-    if sRunName.group(2)[0] == "A":
-        instrument = "NovaSeq 6000"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_NovaSeq", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_NovaSeq")
-    elif sRunName.group(2)[0] == "L":
-        instrument = "NovaSeq Xplus"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_Xplus", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_Xplus")
-    elif sRunName.group(2)[0] == "J" or sRunName.group(2)[0] == "D":
-        instrument = "HiSeq"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_HiSeq", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_HiSeq")
-    elif sRunName.group(2)[0] == "N":
-        instrument = "NextSeq 550"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_NextSeq", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_NextSeq")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_NextSeq", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_NextSeq")
-    elif sRunName.group(2)[0] == "V":
-        instrument = "NextSeq 2000"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_NextSeq", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_NextSeq")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_NextSeq", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_NextSeq")
-    elif sRunName.group(2)[0] == "M":
-        instrument = "MiSeq"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_MiSeq", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_MiSeq")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_MiSeq", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_MiSeq")
-    elif sRunName.group(2)[0] == "F":
-        instrument = "iSeq"
-        if os.path.isdir(os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_iSeq", sRunName.group(0))):
-            runPath = os.path.join('/is2/projects/CCR-SF/scratch/illumina', "RawData_iSeq")
-        elif os.path.isdir(os.path.join('/mnt/ccrsf-raw/illumina', "RawData_iSeq", sRunName.group(0))):
-            runPath = os.path.join('/mnt/ccrsf-raw/illumina', "RawData_iSeq")
-    return(instrument, runPath)
+    # Define a mapping for instruments and their respective paths
+    instruments = {
+        "A": ("NovaSeq 6000", ["RawData", "RawData_NovaSeq"]),
+        "L": ("NovaSeq Xplus", ["RawData", "RawData_Xplus"]),
+        "J": ("HiSeq", ["RawData", "RawData_HiSeq"]),
+        "D": ("HiSeq", ["RawData", "RawData_HiSeq"]),
+        "N": ("NextSeq 550", ["RawData_NextSeq", "RawData_NextSeq"]),
+        "V": ("NextSeq 2000", ["RawData_NextSeq", "RawData_NextSeq"]),
+        "M": ("MiSeq", ["RawData_MiSeq", "RawData_MiSeq"]),
+        "F": ("iSeq", ["RawData_iSeq", "RawData_iSeq"])
+    }
+
+    base_paths = [
+        '/is2/projects/CCR-SF/scratch/illumina',
+        '/mnt/ccrsf-raw/illumina'
+    ]
+
+    instrument_key = sRunName.group(2)[0]
+    instrument_name, paths = instruments.get(instrument_key, ('', ''))
+
+    # Loop through the base paths and the instrument paths to find the correct directory
+    for base in base_paths:
+        for path in paths:
+            full_path = os.path.join(base, path, sRunName.group(0))
+            if os.path.isdir(full_path):
+                return instrument_name, full_path
+
+    return instrument_name, ''
+
+def get_xml_paths(runPath, runName):
+    xmlRunParametersPath = glob.glob(os.path.join(runPath, runName, "[rR]unParameters.xml"))[0]
+    xmlRunInfoPath = glob.glob(os.path.join(runPath, runName, "[rR]unInfo.xml"))[0]
+    return xmlRunParametersPath, xmlRunInfoPath
+
+def get_fastq_path(args, projectName):
+    if args.analysisFolder:
+        return f'{args.analysisFolder}/fastq'
+    else:
+        return f'{projectName}/fastq'
+
+def retrieve_read_lengths_from_fastq(fastqPath):
+    oFileNameR1 = re.compile('(.+)_R1_001.fastq.gz')
+    oFileNameR2 = re.compile('(.+)_R2_001.fastq.gz')
+    fileNameR1 = ''
+    fileNameR2 = ''
+    flagR1, flagR2 = 0, 0
+    for fileName in os.listdir(fastqPath):
+        sFileNameR1 = oFileNameR1.search(fileName)
+        sFileNameR2 = oFileNameR2.search(fileName)
+        if sFileNameR1:
+            flagR1 = 1
+            fileNameR1 = fileName
+        elif sFileNameR2:
+            flagR2 = 1
+            fileNameR2 = fileName
+
+    readLengths = []
+    if flagR1 == 1 and flagR2 == 1:
+        readLengths.append(retrieveReadLength(f'{fastqPath}/{fileNameR1}'))
+        readLengths.append(retrieveReadLength(f'{fastqPath}/{fileNameR2}'))
+    elif flagR1 == 1 and flagR2 == 0:
+        readLengths.append(retrieveReadLength(f'{fastqPath}/{fileNameR1}'))
+    else:
+        sys.stdout.write(f'The fastq file name in {fastqPath} is not standard, so the read length could not be retrieved.\n')
+    return readLengths
+
+def process_run_name(sRunName, args, projectName, readLengths, indexLengths):
+    (instrument, runPath) = getRunPath(sRunName)
+    if os.path.isdir(os.path.join(runPath, runName)):
+        xmlRunParametersPath, xmlRunInfoPath = get_xml_paths(runPath, runName)
+        (RTAVersion, flowcell, workFlowType, flowcellMode, chemistry, chemistryVersion) = parseXml(xmlRunParametersPath, xmlRunInfoPath, instrument, readLengths, indexLengths)
+        if flowcellMode == 'NextSeq 2000 P3 Flow Cell Cartridge':
+            flowcellMode = 'P3'
+        elif flowcellMode == 'NextSeq 1000/2000 P2 Flow Cell Cartridge':
+            flowcellMode = 'P2'
+    else:
+        sys.stdout.write(f'{xmlRunParametersPath}/{xmlRunInfoPath} does not exist.\nRetriving read lengths from fastq.gz...\n')
+        fastqPath = get_fastq_path(args, projectName)
+        readLengths = retrieve_read_lengths_from_fastq(fastqPath)
+    return RTAVersion
+
+def get_sheet_data(data, sheet_name):
+    if sheet_name in data.sheet_names:
+        return data.parse(sheet_name)
+    return None
+
+def get_somatic_data(data):
+    somatic_data = get_sheet_data(data, 'Somatic')
+    tumor_only_data = get_sheet_data(data, 'TumorOnly')
+    
+    if somatic_data and not tumor_only_data:
+        return somatic_data, somatic_data.shape[0], 0, 1
+    elif not somatic_data and tumor_only_data:
+        return tumor_only_data, 0, tumor_only_data.shape[0], 1
+    elif somatic_data and tumor_only_data:
+        combined_data = pd.concat([somatic_data, tumor_only_data], ignore_index=True, sort=False)
+        return combined_data, somatic_data.shape[0], tumor_only_data.shape[0], 2
+    else:
+        sys.stdout.write("No somatic variant calling spreadsheet.\n")
+        return None, 0, 0, 0
+
+def get_project_name_and_csac(args, lqc):
+    oProjectName = re.compile("([-a-zA-Z]+)_([CS0-9]+)_(\w+)_(\d+)")
+    if args.projectName:
+        projectName = args.projectName
+    else:
+        projectName = lqc[lqc.columns[3]][0]
+        sys.stdout.write(f'The project name is not assigned in the command line.\nThe NAS of {csac} is retrieved from LIMS Metadata.txt.\n')
+
+    sProjectName = oProjectName.search(projectName)
+    csac_from_lims = str(lqc[lqc.columns[10]][0])
+
+    if sProjectName:
+        csac_from_project = sProjectName.group(2)
+        if csac_from_lims != csac_from_project:
+            sys.stdout.write(
+                f'{csac_from_lims} in LIMS Metadata.txt is inconsistent with the NAS in the project name, {projectName}.\n'
+                f'The current NAS is set as {csac_from_project}.\n'
+            )
+            return projectName, csac_from_project
+    else:
+        sys.stdout.write(f'Cannot recognize the NAS from {projectName} in LIMS Metadata.txt\n{csac_from_lims} is retrieved from LIMS Metadata.txt.\n')
+    
+    return projectName, csac_from_lims
+
+def parse_data(args):
+    excelfile = args.finput
+    data = pd.ExcelFile(excelfile)
+    
+    lqc = get_sheet_data(data, 'LabQC')
+    summary = get_sheet_data(data, 'Summary')
+    vt, numPairedCases, numTumorOnlyCases, vtSomaticFlag = get_somatic_data(data)
+    vtGermline = get_sheet_data(data, 'JointGenotyping')
+    vtGermlineFlag = 1 if vtGermline else 0
+
+    if "EXOME" in lqc['Application'][0].upper():
+        docfile = '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/dragen_exome.docx'
+        seqType = "Exome"
+    else:
+        docfile = '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/dragen_wgs.docx'
+        seqType = lqc['Application'][0]
+
+    doc = Document(docfile)
+    PIName, labContact, bioinfoContact = lqc[lqc.columns[1]][0], lqc[lqc.columns[2]][0], lqc[lqc.columns[4]][0]
+    projectName, csac = get_project_name_and_csac(args, lqc)
+    stip, sitr = str(len(lqc)), str(len(summary))
+    date = time.strftime("%x")
+
+    return doc, PIName, labContact, bioinfoContact, projectName, csac, stip, sitr, date
+
+def get_germline_data(data):
+    if "JointGenotyping" in data.sheet_names:
+        return get_sheet_data(data, 'JointGenotyping'), 1
+    else:
+        sys.stdout.write("No germline joint genotyping spreadsheet.\n")
+        return None, 0
+
+def get_document_template(lqc):
+    if "EXOME" in lqc['Application'][0].upper():
+        return '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/dragen_exome.docx', "Exome"
+    else:
+        return '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/dragen_wgs.docx', lqc['Application'][0]
+
+def plot_total_and_mapped_reads(summary):
+    x = list(summary[summary.columns[0]])
+    y0 = list(summary['Total input reads'])
+    y1 = list(summary['% Total mapped reads'])
+    x_pos = np.arange(len(x))
+
+    fig, ax1 = plt.subplots()
+    ax1.bar(x_pos, y0, align='center', alpha=0.5, label='Total Reads')
+    ax1.set_ylabel('Total Reads')
+    ax1.set_xticks(x_pos)
+    ax1.set_xticklabels(x, rotation=45, ha='right')
+    ax1.set_title('Total Reads & Percent of Mapped Reads', fontsize=30)
+    ax1.legend(loc=3)
+
+    ax2 = ax1.twinx()
+    ax2.plot(x_pos, y1, 'r-o', label='Percent of Mapped Reads')
+    ax2.set_ylabel('Percent of Mapped Reads', color='r')
+    ax2.set_ylim(0, 100)
+    ax2.legend(loc=4)
+
+    fig.set_size_inches(12, 8)
+    fig.savefig('matplt1.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.clf()
+
+def plot_mapped_reads_statistics(summary, lqc):
+    x = list(summary[summary.columns[0]])
+    y0 = list(summary['% Uniquely mapped reads'])
+    x_pos = np.arange(len(x))
+
+    if "EXOME" in lqc['Application'][0].upper():
+        y1 = list(summary['% of reads on target region'])
+        lb = "Percent Reads Mapped On Target"
+        y2 = list(summary['% of target region with coverage above 20x'])
+        lbb = "% of target region with coverage above 20x"
+    else:
+        y1 = list(summary['Mean of mapped coverage'])
+        lb = "Mean of mapped coverage"
+        y2 = list(summary['% of genome with coverage above 20x'])
+        lbb = "% of genome with coverage above 20x"
+
+    plt.plot(x_pos, y0, 'b-o', label='Percent of Uniquely mapped reads')
+    plt.plot(x_pos, y1, 'r-o', label=lb)
+    plt.plot(x_pos, y2, 'g-o', label=lbb)
+    plt.xticks(x_pos, x, rotation=45, ha='right')
+    plt.ylabel('Percent')
+    plt.title('Mapped Reads Statistics', fontsize=30)
+    plt.ylim(0, 100)
+    plt.legend(loc=4)
+
+    fig = plt.gcf()
+    fig.set_size_inches(12, 8)
+    fig.savefig('matplt2.png', dpi=300, bbox_inches='tight')
+    plt.clf()
+
+def add_plots_to_doc(doc, filenm):
+    p = doc.tables[3].rows[0].cells[0].add_paragraph()
+    r = p.add_run()
+    r.add_picture('matplt1.png', height=Inches(4))
+
+    p = doc.tables[3].rows[1].cells[0].add_paragraph()
+    r = p.add_run()
+    r.add_picture('matplt2.png', height=Inches(4))
+
+    doc.save(filenm)
+
+def replace_string(doc, placeholder, value):
+    for paragraph in doc.paragraphs:
+        if placeholder in paragraph.text:
+            for run in paragraph.runs:
+                run.text = run.text.replace(placeholder, value)
+
+def populate_table(cell, df, title):
+    cell.add_paragraph(text=f"\n\n{title}:\n")
+    rows, columns = df.shape
+    tb = cell.add_table(1, columns)
+    tb.style = 'Table Grid'
+    h = list(df)
+    head = tb.rows[0].cells
+    for idx, name in enumerate(h):
+        paragraph = head[idx].paragraphs[0]
+        run = paragraph.add_run(name)
+        run.bold = True
+    for r in range(rows):
+        cells = tb.add_row().cells
+        for col in range(columns):
+            cells[col].text = str(df.iat[r, col])
+
+def handle_email_message(docfile, lqc, PIName, rc, rc1, rcGermline, flowcell, st, csac, instrument, summary, vtSomaticFlag, vt, vtPaired, vtTumorOnly, vtGermlineFlag, vtGermline, emailfile):
+    doc = Document(docfile)
+    app = str(lqc['Application'][0])
+    if '_' in PIName:
+        pilast = PIName.replace("_", " ").split()[1]
+    elif ',' in PIName:
+        pilast = PIName.split(', ')[0]
+    else:
+        pilast = PIName
+    ttext = f"Mapping:\n\n{rc.text}\n\nVariant Calling:\n\n{rc1.text}\n\n{rcGermline.text}"
+
+    replace_string(doc, "{App}", app)
+    replace_string(doc, "{Flowcell1}", flowcell)
+    replace_string(doc, "Pilast", pilast)
+    replace_string(doc, "{ST}", st)
+    replace_string(doc, "{CSAC}", csac)
+    replace_string(doc, "{Flowcell2}", flowcell)
+    replace_string(doc, "{MT}", instrument)
+
+    doc.paragraphs[14].text = ttext
+
+    populate_table(doc.tables[0].rows[0].cells[0], summary, "Mapping")
+
+    if vtSomaticFlag == 1:
+        populate_table(doc.tables[0].rows[0].cells[0], vt, "Somatic Variant Calling")
+    elif vtSomaticFlag == 2:
+        populate_table(doc.tables[0].rows[0].cells[0], vtPaired, "Somatic Variant Calling (Paired)")
+        populate_table(doc.tables[0].rows[0].cells[0], vtTumorOnly, "Somatic Variant Calling (Tumor-only)")
+
+    if vtGermlineFlag == 1:
+        populate_table(doc.tables[0].rows[0].cells[0], vtGermline, "Germline Joint Genotyping")
+
+    doc.save(emailfile)
+
+def construct_record(excelfile, summary, lqc, readLengths):
+    out = ""
+    out += os.getcwd().split("/")[-1] + ","
+    out += os.path.basename(excelfile).split('.')[0] + ","
+    adate = time.strftime('%m/%d/%y', time.gmtime(os.path.getctime(excelfile)))
+    out += str(adate) + ",cronjob,," + str(adate) + ","
+    gb = str(float(sum(summary[summary.columns[1]]))/1000)
+    out += gb + ","
+    out += str(len(summary)) + ","
+    out += str(lqc['Application'][0]) + ","
+    if len(readLengths) == 1:
+        out += readLengths[0] + "__0,"
+    elif len(readLengths) == 2:
+        out += readLengths[0] + "__" + readLengths[1] + ","
+    else: 
+        out += "Customized,"
+    out += str(adate) + "\n"
+    return out
+
+def record_exists(csvrecord, excelfile):
+    with open(csvrecord, 'r') as ck:
+        ckk = ck.read()
+    return os.path.basename(excelfile).split('.')[0] in ckk
+
+def update_record(csvrecord, excelfile, summary, lqc, readLengths):
+    if not record_exists(csvrecord, excelfile):
+        out = construct_record(excelfile, summary, lqc, readLengths)
+        with open(csvrecord, 'a') as cr:
+            cr.write(out)
+
 
 def main(argv):
     path = os.getcwd()
@@ -210,753 +475,38 @@ def main(argv):
     chemistryVersion = "Unknown"
     oRunName = re.compile("(\d{6,})_([A-Z0-9]+)_(\d+)_([-A-Z0-9]+)")
     sRunName = oRunName.search(runName)
+
     if sRunName:
-        #flowcell = sRunName.group(4)[-9:]
-        (instrument, runPath) = getRunPath(sRunName)
-        if os.path.isdir(os.path.join(runPath, runName)):
-            xmlRunParametersPath = glob.glob(os.path.join(runPath, runName, "[rR]unParameters.xml" ))[0]
-            xmlRunInfoPath = glob.glob(os.path.join(runPath, runName, "[rR]unInfo.xml" ))[0]
-            (RTAVersion, flowcell, workFlowType, flowcellMode, chemistry, chemistryVersion) = parseXml(xmlRunParametersPath, xmlRunInfoPath, instrument, readLengths, indexLengths)
-            if flowcellMode == 'NextSeq 2000 P3 Flow Cell Cartridge':
-                flowcellMode = 'P3'
-            elif flowcellMode == 'NextSeq 1000/2000 P2 Flow Cell Cartridge':
-                flowcellMode = 'P2'
-        else:
-            sys.stdout.write(f'{xmlRunParametersPath}/{xmlRunInfoPath} does not exist.\nRetriving read lengths from fastq.gz...\n')
-            if args.analysisFolder:
-                fastqPath = f'{args.analysisFolder}/fastq'
-            else:
-                fastqPath = f'{projectName}/fastq'
-            flagR1 = 0
-            flagR2 = 0
-            if os.path.isdir(fastqPath):
-                oFileNameR1 = re.compile('(.+)_R1_001.fastq.gz')
-                oFileNameR2 = re.compile('(.+)_R2_001.fastq.gz')
-                fileNameR1 = ''
-                fileNameR2 = ''
-                for fileName in os.listdir(fastqPath):
-                    sFileNameR1 = oFileNameR1.search(fileName)
-                    sFileNameR2 = oFileNameR2.search(fileName)
-                    if sFileNameR1:
-                        flagR1 = 1
-                        fileNameR1 = fileName
-                    elif sFileNameR2:
-                        flagR2 = 1
-                        fileNameR2 = fileName
-                if flagR1 == 1 and flagR2 == 1:
-                    readLengths.append(retrieveReadLength(f'{fastqPath}/{fileNameR1}'))
-                    readLengths.append(retrieveReadLength(f'{fastqPath}/{fileNameR2}'))
-                elif flagR1 == 1 and flagR2 == 0:
-                    readLengths.append(retrieveReadLength(f'{fastqPath}/{fileNameR1}'))
-                else:
-                    sys.stdout.write(f'The fastq file name in {fastqPath} is not standard, so the read length could not be retrieved.\n')
+        RTAVersion = process_run_name(sRunName, args, projectName, readLengths, indexLengths)
     else:
         sys.stdout.write("The run name is not recognized from the current path.\n")
         sys.stdout.write("Please assign the run name using,\n")
         sys.stdout.write("run_wordreport_dragen.py -i report.xlsx -r run_name\n")
         sys.stdout.write("The current Word report is generated without checking RunInfo.xml and RunParameter.xml\n")
         RTAVersion = ""
-    #excelfile = sys.argv[1]
+
     excelfile = args.finput
-
-    filenm=excelfile.split('.')[0]+'.docx'
-    emailfile = excelfile.split('.')[0]+'_email.docx'
-    data = pd.ExcelFile(excelfile)
-
-    #if data.sheet_names[0] != "Demultiplex":
-    #    de = data.parse(data.sheet_names[0])
-    #else:
-    #    de = data.parse('Demultiplex')
-
-    for sheetName in data.sheet_names:
-        #if data.sheet_names[2] == "LabQC" or data.sheet_names[3] == "LabQC":
-        if sheetName == "LabQC":
-            lqc = data.parse('LabQC') 
-
-    summary=data.parse('Summary')
+    filenm, emailfile = get_file_names(excelfile)
+    data = get_data_from_excel(excelfile)
     
-    #vtFlag = 0
-    vtSomaticFlag = 0
-    vtGermlineFlag = 0
-    if "Somatic" in data.sheet_names and "TumorOnly" not in data.sheet_names: #[3] == "Somatic" or data.sheet_names[4] == "Somatic":
-        vt = data.parse('Somatic')
-        numCases = vt.shape[0]
-        numPairedCases = vt.shape[0]
-        numTumorOnlyCases = 0
-        vtSomaticFlag = 1
-    elif "Somatic" not in data.sheet_names and "TumorOnly" in data.sheet_names: #[3] == "Somatic" or data.sheet_names[4] == "Somatic":
-        vt = data.parse('TumorOnly')
-        numCases = vt.shape[0]
-        numPairedCases = 0
-        numTumorOnlyCases = vt.shape[0]
-        vtSomaticFlag = 1
-    elif "Somatic" in data.sheet_names and "TumorOnly" in data.sheet_names: #[3] == "Somatic" or data.sheet_names[4] == "Somatic":
-        vtPaired = data.parse('Somatic')
-        vtTumorOnly = data.parse('TumorOnly')
-        vt = pd.concat([vtPaired, vtTumorOnly], ignore_index=True, sort=False)
-        numCases = vt.shape[0]
-        numPairedCases = vtPaired.shape[0]
-        numTumorOnlyCases = vtTumorOnly.shape[0]
-        vtSomaticFlag = 2
-    else:
-        sys.stdout.write("No somatic variant calling spreadsheet.\n")
-
-    if "JointGenotyping" in data.sheet_names:
-        vtGermline = data.parse('JointGenotyping')
-        #somatic = "germline joint genotyping"
-        vtGermlineFlag = 1
-    else:
-        sys.stdout.write("No germline joint genotyping spreadsheet.\n")
+    lqc = get_sheet_data(data, 'LabQC')
+    summary = get_sheet_data(data, 'Summary')
     
-    if "EXOME" in lqc['Application'][0].upper():
-        docfile = '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/dragen_exome.docx'
-        doc = Document(docfile)
-        seqType = "Exome"
-    else:
-        docfile = '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/dragen_wgs.docx'
-        doc = Document(docfile)
-        seqType = lqc['Application'][0]
-
-    PIName = lqc[lqc.columns[1]][0]
-    labContact = lqc[lqc.columns[2]][0]
-    bioinfoContact = lqc[lqc.columns[4]][0]
-    projectName = ""
-    csac = ""
-    oProjectName = re.compile("([-a-zA-Z]+)_([CS0-9]+)_(\w+)_(\d+)")
-    if args.projectName:
-        projectName = args.projectName
-        #LouStaudt_CS029093_8exome_03262021; FrancisMcMahon_CS028621_96_SC_Nuclei_RNA_04292021
-        sProjectName = oProjectName.search(projectName)
-        if sProjectName:
-            csac = str(lqc[lqc.columns[10]][0])
-            if csac != sProjectName.group(2):
-                sys.stdout.write(
-                    f'{csac} in LIMS Metadata.txt is inconsistent with the NAS in the project name, {projectName}.\n'
-                    f'The current NAS is set as {sProjectName.group(2)}.\n'
-                )
-                csac = sProjectName.group(2)
-        else:
-            csac = str(lqc[lqc.columns[10]][0])
-            sys.stdout.write(f'Cannot recognize the NAS from the assigned project name, {projectName}\n{csac} is retrieved from LIMS Metadata.txt.\n')
-    else:
-        projectName = lqc[lqc.columns[3]][0]
-        csac = str(lqc[lqc.columns[10]][0])
-        sys.stdout.write(f'The project name is not assigned in the command line.\nThe NAS of {csac} is retrieved from LIMS Metadata.txt.\n')
-        sProjectName = oProjectName.search(projectName)
-        if sProjectName:
-            if csac != sProjectName.group(2):
-                sys.stdout.write(
-                    f'{csac} in  the LIMS Metadata.txt is inconsistent with the NAS in the project name, {projectName}.\n'
-                    f'The current NAS is set as {sProjectName.group(2)}.\n'
-                )
-                csac = sProjectName.group(2)
-        else:
-            sys.stdout.write(f'Cannot recognize the NAS from {projectName} in LIMS Metadata.txt\n{csac} is retrieved from LIMS Metadata.txt.\n')
-    stip = str(len(lqc))
-    sitr = str(len(summary))
-    date = time.strftime("%x")
-
-    replace_string(doc,"{PI}", PIName )
-    replace_string(doc,"{LC}", labContact)
-    replace_string(doc,"{BC}", bioinfoContact )
-    replace_string(doc,"{PT}", projectName)
-    replace_string(doc,"{CSAC}", csac )
-    replace_string(doc,"{STIP}", stip)
-    replace_string(doc,"{SITR}", sitr )
-    replace_string(doc,"{DATE}", date)
-
-    st = str(len(summary)) + ' ' + seqType
-
-    if len(readLengths) == 1:
-        ps = 'single-end'
-    elif len(readLengths) == 2:
-        ps = 'paired-end'
-    else:
-        ps = 'customized'
-
-    rangemin = str(int(min(list(summary['Total input reads']))/1000000))
-    rangemax = str(int(max(list(summary['Total input reads']))/1000000))
-    #basecall = str(int(min([float(f) for f in list(de[de.columns[9]]) if f == f and f != "% >= Q30 bases"])))
-    try:
-        basecall = str(int(min(list(summary['% >= Q30 bases']))))
-    except:
-        basecall = "NA"
-    configAttr2Value = {}
-    if args.analysisFolder:
-        configFile = f'{args.analysisFolder}/config.py'
-    else:
-        configFile = f'{projectName}/config.py'
-    if os.path.exists(configFile):
-        with open(configFile, 'r') as CONFIG:
-            line = CONFIG.readline()
-            for line in CONFIG:
-                columns = line[0:-1].split("=")
-                configAttr2Value[columns[0]] = columns[1].replace('"', '')
-    else:
-        configAttr2Value['ref'] = lqc[lqc.columns[9]][0]
-        sys.stdout.write(
-            f'{configFile} does not exist.\n'
-            f'If the anlysis folder is inconsistent with the project name, the analysis folder can be assigned using -af.\n'
-            f'The reference of {configAttr2Value["ref"]} is retrieved from LabQC metadata...\n'
-        )
-
-####################on construction
-    dragenVersion = "Unknown"
-    dragenSomaticPairedLog = "Unknown"
-    dragenSomaticTumorOnlyLog = "Unknown"
-    dragenGermlineLog = "Unknown"
-    if args.analysisFolder:
-        analysisFolder = args.analysisFolder
-    else:
-        analysisFolder = projectName
-    if os.path.isdir(analysisFolder):
-        oSampleFolder = re.compile('Sample_(.+)')
-        oPairFolder = re.compile('Pair_(.+)')
-        oVersion = re.compile('DRAGEN Host Software Version (.+) and Bio-IT Processor Version (.+)')
-                              #DRAGEN Host Software Version 07.021.609.3.9.5 and Bio-IT Processor Version 0x18101306
-        for entry in os.listdir(analysisFolder):
-            sSampleFolder = oSampleFolder.search(entry)
-            sPairFolder = oPairFolder.search(entry)
-            if entry.startswith('slurm'):
-                continue
-            elif sSampleFolder:
-                if os.path.exists(f'{analysisFolder}/{entry}/{sSampleFolder.group(1)}_dragen.log'):
-                    with open(f'{analysisFolder}/{entry}/{sSampleFolder.group(1)}_dragen.log', 'r') as IN:
-                        for line in IN:
-                            if line.startswith('Command Line:'):
-                                if not ('--vc-emit-ref-confidence GVCF' in line):
-                                    dragenSomaticTumorOnlyLog = line
-                            elif line.startswith('DRAGEN Host Software Version'):
-                                sVersion = oVersion.search(line)
-                                if sVersion:
-                                    dragenVersion = sVersion.group(1)
-                                break
-            elif sPairFolder:
-                if os.path.exists(f'{analysisFolder}/{entry}/{sPairFolder.group(1)}_dragen.log'):
-                    with open(f'{analysisFolder}/{entry}/{sPairFolder.group(1)}_dragen.log', 'r') as IN:
-                        for line in IN:
-                            if line.startswith('Command Line:'):
-                                dragenSomaticPairedLog = line
-                            elif line.startswith('DRAGEN Host Software Version'):
-                                sVersion = oVersion.search(line)
-                                if sVersion:
-                                    dragenVersion = sVersion.group(1)
-                                break
-            elif entry == 'joint_dragen.log':
-                if os.path.exists(f'{analysisFolder}/{entry}'):
-                    with open(f'{analysisFolder}/{entry}', 'r') as IN:
-                        for line in IN:
-                            if line.startswith('Command Line:'):
-                                dragenGermlineLog = line
-                                sVersion = oVersion.search(line)
-                            elif line.startswith('DRAGEN Host Software Version'):
-                                if sVersion:
-                                    dragenVersion = sVersion.group(1)
-                                break
-            else:
-                continue
-    dragenShortVersion = "Unknown"
-    if dragenVersion != 'Unknown':
-        dragenVersionFields = dragenVersion.split('.')
-        dragenShortVersion = f'v{dragenVersionFields[-3]}.{dragenVersionFields[-2]}.{dragenVersionFields[-1]}'
-    table4 = doc.tables[2]
-    table4.cell(3,1).text = f'Dragen {dragenShortVersion}'
-    table4.cell(3,1).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    table4.cell(3,1).vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    table4.cell(3,1).paragraphs[0].paragraph_format.space_after = Pt(0)
-    logs = []
-    if dragenSomaticPairedLog != 'Unknown':
-        commandLine = f'dragen -f -r {{reference}}'
-        commandFields = dragenSomaticPairedLog[0:-1].split('--')
-        for field in commandFields[1:]:
-            if field.startswith('intermediate-results-dir'):
-                continue
-            elif field.startswith('output-directory'):
-                continue
-            elif field.startswith('tumor-fastq-list-sample-id '):
-                commandLine += f' --tumor-fastq-list-sample-id {{tumorSampleName}}'
-            elif field.startswith('tumor-fastq-list '):
-                commandLine += f' --tumor-fastq-list fastq_list.csv'
-            elif field.startswith('fastq-list-sample-id '):
-                commandLine += f' --fastq-list-sample-id {{normalSampleName}}'
-            elif field.startswith('fastq-list '):
-                commandLine += f' --fastq-list fastq_list.csv'
-            elif field.startswith('vc-target-bed '):
-                targetBed = field[0:-1].split("/")[-1]
-                commandLine += f' --vc-target-bed {targetBed}'
-            elif field.startswith('output-file-prefix '):
-                commandLine += f' --output-file-prefix {{tumorSampleName_vs_normalSampleName}}'
-            elif field.startswith('dbsnp '):
-                dbsnpVcf = field[0:-1].split("/")[-1]
-                commandLine += f' --dbsnp {dbsnpVcf}'
-            elif field.startswith('panel-of-normals '):
-                ponVcf = field[0:-1].split("/")[-1]
-                commandLine += f' --panel-of-normals {ponVcf}'
-            else:
-                commandLine += f' --{field[0:-1]}'
-        logs.append(f'Somatic paired: {commandLine}')
-
-    if dragenSomaticTumorOnlyLog != 'Unknown':
-        commandLine = f'dragen -f -r {{reference}}'
-        commandFields = dragenSomaticTumorOnlyLog[0:-1].split('--')
-        for field in commandFields[1:]:
-            if field.startswith('intermediate-results-dir'):
-                continue
-            elif field.startswith('output-directory'):
-                continue
-            elif field.startswith('tumor-fastq-list-sample-id '):
-                commandLine += f' --tumor-fastq-list-sample-id {{tumorSampleName}}'
-            elif field.startswith('tumor-fastq-list '):
-                commandLine += f' --tumor-fastq-list fastq_list.csv'
-            elif field.startswith('fastq-list-sample-id '):
-                commandLine += f' --fastq-list-sample-id {{normalSampleName}}'
-            elif field.startswith('fastq-list '):
-                commandLine += f' --fastq-list fastq_list.csv'
-            elif field.startswith('vc-target-bed '):
-                targetBed = field[0:-1].split("/")[-1]
-                commandLine += f' --vc-target-bed {targetBed}'
-            elif field.startswith('output-file-prefix '):
-                commandLine += f' --output-file-prefix {{tumorSampleName}}'
-            elif field.startswith('dbsnp '):
-                dbsnpVcf = field[0:-1].split("/")[-1]
-                commandLine += f' --dbsnp {dbsnpVcf}'
-            elif field.startswith('panel-of-normals '):
-                ponVcf = field[0:-1].split("/")[-1]
-                commandLine += f' --panel-of-normals {ponVcf}'
-            else:
-                commandLine += f' --{field[0:-1]}'
-        logs.append(f'Somatic tumor-only: {commandLine}')
-
-    if dragenGermlineLog != 'Unknown':
-        commandLine = f'dragen -f -r {{reference}}'
-        commandFields = dragenGermlineLog[0:-1].split('--')
-        for field in commandFields[1:]:
-            if field.startswith('intermediate-results-dir'):
-                continue
-            elif field.startswith('output-directory'):
-                continue
-            elif field.startswith('vc-target-bed '):
-                targetBed = field[0:-1].split("/")[-1]
-                commandLine += f' --vc-target-bed {targetBed}'
-            elif field.startswith('output-file-prefix '):
-                commandLine += f' --output-file-prefix joint'
-            elif field.startswith('dbsnp '):
-                dbsnpVcf = field[0:-1].split("/")[-1]
-                commandLine += f' --dbsnp {dbsnpVcf}'
-            elif field.startswith('panel-of-normals '):
-                ponVcf = field[0:-1].split("/")[-1]
-                commandLine += f' --panel-of-normals {ponVcf}'
-            elif field.startswith('variant-list '):
-                commandLine += f' --variant-list vcf_list.txt'
-            else:
-                commandLine += f' --{field[0:-1]}'
-        logs.append(f'Germline joint genotyping: {commandLine}')
-
-    tableContent = logs[0]
-    for log in logs[1:]:
-        tableContent += f'\n\n{log}'
-    table4.cell(3,2).text = tableContent
-    #table4.cell(2,2).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    #table4.cell(2,2).vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    #table4.cell(2,2).paragraphs[0].paragraph_format.space_after = Pt(0)
-                
-    if os.path.exists(configFile):
-        with open(configFile, 'r') as CONFIG:
-            line = CONFIG.readline()
-            for line in CONFIG:
-                columns = line[0:-1].split("=")
-                configAttr2Value[columns[0]] = columns[1].replace('"', '')
-    else:
-        configAttr2Value['ref'] = lqc[lqc.columns[9]][0]
-        sys.stdout.write(
-            f'{configFile} does not exist.\n'
-            f'If the anlysis folder is inconsistent with the project name, the analysis folder can be assigned using -af.\n'
-            f'The reference of {configAttr2Value["ref"]} is retrieved from LabQC metadata...\n'
-        )
-####################on construction
-
-    allalign = str(int(sum(list(summary['% Total mapped reads']))/len(list(summary['Total mapped reads']))))
-
-    uniqmap = str(int(min(list(summary['% Uniquely mapped reads']))))
-
-    pctdupmin = str(int(min(list(summary['% Total number of duplicate reads']))))
-    pctdupmax = str(int(max(list(summary['% Total number of duplicate reads']))))
-
-    if seqType == "Exome":
-        targetmin = str(int(min(list(summary['% of reads on target region']))))
-        targetmax = str(int(max(list(summary['% of reads on target region']))))
-
-    #rawcovmin = str(int(min(list(summary['Mean of raw coverage']))))
-    #rawcovmax = str(int(max(list(summary['Mean of raw coverage']))))
-
-    mapcovmin = str(int(min(list(summary['Mean of mapped coverage']))))
-    mapcovmax = str(int(max(list(summary['Mean of mapped coverage']))))
-
-    istmax = str(int(max(list(summary['Mean of insert size (bases)']))))
-    istmin = str(int(min(list(summary['Mean of insert size (bases)']))))
-
-    if seqType == "Exome":
-        tarcovmin = str(int(min(list(summary['% of target region with coverage above 20x']))))
-    else:
-        tarcovmin = str(int(min(list(summary['% of genome with coverage above 20x']))))
+    vt, vtSomaticFlag = get_somatic_data(data)
+    vtGermline, vtGermlineFlag = get_germline_data(data)
     
-    #if vtFlag == 1:
-    #if somatic == "germline joint genotyping":
-    if vtGermlineFlag == 1:
-        rows,columns = vtGermline.shape 
-        germlineTotalmin = str('{:,}'.format(min(list(vtGermline['Prefilter Total']))))
-        germlineTotalmax = str('{:,}'.format(max(list(vtGermline['Prefilter Total']))))
-        germlineSnpmin = str('{:,}'.format(min(list(vtGermline['Prefilter SNPs']))))
-        germlineSnpmax = str('{:,}'.format(max(list(vtGermline['Prefilter SNPs']))))
-        #indmin = str(int(min(list(vtGermline['Prefilter INDELs']))/1000))
-        #indmax = str(int(max(list(vtGermline['Prefilter INDELs']))/1000))
-        germlineIndmin = (vtGermline.iloc[0]['Prefilter Insertions (Hom)'] + vtGermline.iloc[0]['Prefilter Insertions (Het)'] +
-                  vtGermline.iloc[0]['Prefilter Deletions (Hom)'] + vtGermline.iloc[0]['Prefilter Deletions (Het)'] + vtGermline.iloc[0]['Prefilter Indels (Het)'])
-        germlineIndmax = germlineIndmin
-        for row in range(rows):
-            numINDELs = (vtGermline.iloc[row]['Prefilter Insertions (Hom)'] +
-                         vtGermline.iloc[row]['Prefilter Insertions (Het)'] +
-                         vtGermline.iloc[row]['Prefilter Deletions (Hom)'] +
-                         vtGermline.iloc[row]['Prefilter Deletions (Het)'] +
-                         vtGermline.iloc[row]['Prefilter Indels (Het)'])
-            if numINDELs < germlineIndmin:
-                 germlineIndmin = numINDELs
-            if numINDELs > germlineIndmax:
-                 germlineIndmax = numINDELs
-        germlineNumNoncases = rows
-        germlineTitvmin = str(float(min(list(vtGermline['Prefilter Ti/Tv ratio']))))
-        germlineTitvmax = str(float(max(list(vtGermline['Prefilter Ti/Tv ratio']))))
-    #elif somatic == "somatic variant calling":
-    if vtSomaticFlag == 1 or vtSomaticFlag == 2:
-        rows,columns = vt.shape 
-        totalmin = str('{:,}'.format(min(list(vt['PreFilter Total']))))
-        totalmax = str('{:,}'.format(max(list(vt['PreFilter Total']))))
-        snpmin = str('{:,}'.format(min(list(vt['PreFilter SNPs']))))
-        snpmax = str('{:,}'.format(max(list(vt['PreFilter SNPs']))))
-        #indmin = str(int(min(list(vt['INDELs']))/1000))
-        #indmax = str(int(max(list(vt['INDELs']))/1000))
-        indmin = (vt.iloc[0]['PreFilter Insertions (Het)'] + vt.iloc[0]['PreFilter Deletions (Het)'] +
-                  vt.iloc[0]['PreFilter Indels (Het)'])
-        indmax = indmin
-        for row in range(rows):
-            numINDELs = (vt.iloc[row]['PreFilter Insertions (Het)'] +
-                         vt.iloc[row]['PreFilter Deletions (Het)'] +
-                         vt.iloc[row]['PreFilter Indels (Het)'])
-            if numINDELs < indmin:
-                 indmin = numINDELs
-            if numINDELs > indmax:
-                 indmax = numINDELs
-        #numCases = rows
-        titvmin = str(float(min(list(vt['PreFilter Ti/Tv ratio']))))
-        titvmax = str(float(max(list(vt['PreFilter Ti/Tv ratio']))))
-
-    rc = doc.paragraphs[18]
-
-    rc.text = rc.text.replace("{ST}", st)
-    rc.text = rc.text.replace("{MT}", f'{instrument} {flowcellMode}')
-    rc.text = rc.text.replace("{PS}", ps)
-    rc.text = rc.text.replace("{Rangemin}", rangemin)
-    rc.text = rc.text.replace("{Rangemax}", rangemax)
-    rc.text = rc.text.replace("{BaseCall}", basecall)
-    rc.text = rc.text.replace("{Ref}", configAttr2Value['ref'])
-    rc.text = rc.text.replace("{Allalign}", allalign)
-    rc.text = rc.text.replace("{Uniqmap}", uniqmap)
-
-    rc.text = rc.text.replace("{PctDupMin}", pctdupmin)
-    rc.text = rc.text.replace("{PctDupMax}", pctdupmax)
-    if seqType == "Exome":
-        rc.text = rc.text.replace("{TargetMin}", targetmin)
-        rc.text = rc.text.replace("{TargetMax}", targetmax)
-    #rc.text = rc.text.replace("{RawCovMin}", rawcovmin)
-    #rc.text = rc.text.replace("{RawCovMax}", rawcovmax)
-    rc.text = rc.text.replace("{MapCovMin}", mapcovmin)
-    rc.text = rc.text.replace("{MapCovMax}", mapcovmax)
-    rc.text = rc.text.replace("{IstMin}", istmin)
-    rc.text = rc.text.replace("{IstMax}", istmax)
-    rc.text = rc.text.replace("{TarCovMin}", tarcovmin)
-
-    rc1 = doc.paragraphs[20]
-    #if vtFlag == 1:
-    if vtSomaticFlag == 1 or vtSomaticFlag == 2:
-        #rc1.text = rc1.text.replace("{Somatic}", 'somatic variant calling')
-        rc1.text = rc1.text.replace("{NumCases}", str(numCases))
-        rc1.text = rc1.text.replace("{NumPairedCases}", str(numPairedCases))
-        rc1.text = rc1.text.replace("{NumTumorOnlyCases}", str(numTumorOnlyCases))
-        rc1.text = rc1.text.replace("{TotalMin}", totalmin)
-        rc1.text = rc1.text.replace("{TotalMax}", totalmax)
-        rc1.text = rc1.text.replace("{SnpMin}", snpmin)
-        rc1.text = rc1.text.replace("{SnpMax}", snpmax)
-    
-        rc1.text = rc1.text.replace("{IndMin}", str('{:,}'.format(indmin)))
-        rc1.text = rc1.text.replace("{IndMax}", str('{:,}'.format(indmax)))
-        rc1.text = rc1.text.replace("{TitvMin}", titvmin)
-        rc1.text = rc1.text.replace("{TitvMax}", titvmax)
-
-    rcGermline = doc.paragraphs[22]
-    if vtGermlineFlag == 1:
-        #rcGermline.text = rcGermline.text.replace("{Somatic}", 'germline joint genotyping')
-        rcGermline.text = rcGermline.text.replace("{GermlineNumNoncases}", str(germlineNumNoncases))
-        rcGermline.text = rcGermline.text.replace("{GermlineTotalMin}", germlineTotalmin)
-        rcGermline.text = rcGermline.text.replace("{GermlineTotalMax}", germlineTotalmax)
-        rcGermline.text = rcGermline.text.replace("{GermlineSnpMin}", germlineSnpmin)
-        rcGermline.text = rcGermline.text.replace("{GermlineSnpMax}", germlineSnpmax)
-    
-        rcGermline.text = rcGermline.text.replace("{GermlineIndMin}", str('{:,}'.format(germlineIndmin)))
-        rcGermline.text = rcGermline.text.replace("{GermlineIndMax}", str('{:,}'.format(germlineIndmax)))
-        rcGermline.text = rcGermline.text.replace("{GermlineTitvMin}", germlineTitvmin)
-        rcGermline.text = rcGermline.text.replace("{GermlineTitvMax}", germlineTitvmax)
-
-    #flowcell = str(de.columns[0]).split(':')[1].strip()
-
-    table1 = doc.tables[0]
-    table1.cell(0,2).text = flowcell
-    table1.cell(1,2).text = instrument
-    table1.cell(2,2).text = flowcellMode
-    table1.cell(3,2).text = seqType
-    #table1.cell(3,2).text = str(lqc[lqc.columns[12]][0]).split('x')[1] + ' (' + lqc[lqc.columns[12]][0] + ' cycles)'
-    if len(readLengths) == 1 and len(indexLengths) == 1:
-        table1.cell(4,2).text = f'R1:{readLengths[0]}, i7:{indexLengths[0]}'
-    elif len(readLengths) == 1 and len(indexLengths) == 2:
-        table1.cell(4,2).text = f'R1:{readLengths[0]}, i7:{indexLengths[0]}, i5:{indexLengths[1]}'
-    elif len(readLengths) == 2 and len(indexLengths) == 1:
-        table1.cell(4,2).text = f'R1:{readLengths[0]}, i7:{indexLengths[0]}, R2:{readLengths[1]}'
-    elif len(readLengths) == 2 and len(indexLengths) == 2:
-        table1.cell(4,2).text = f'R1:{readLengths[0]}, i7:{indexLengths[0]}, i5:{indexLengths[1]}, R2:{readLengths[1]}'
-    else:
-        table1.cell(4,2).text = "Customized"    
-
-    if "EXOME" in lqc['Application'][0].upper():
-        #trueseq = "Agilent SureSelect XT (All Exon V7 +UTR)"
-        if configAttr2Value['ref'].startswith('hg') or configAttr2Value['ref'].startswith('Human'):
-            trueseq = "Agilent SureSelect Human All Exon V7"
-        elif configAttr2Value['ref'].startswith('mm') or configAttr2Value['ref'].startswith('Mouse'):
-            trueseq = "Agilent SureSelect XT Mouse All Exon"
-        else:
-            trueseq = "Custom-made"
-    elif "WGS" in lqc['Application'][0].upper():
-        #shent2 on 2018/09/13
-        #table1.cell(2,5).text = "TruSeq DNA Sample Prep FC-121-1001"
-        #trueseq = "TruSeq DNA Sample Prep FC-121-1001"
-        trueseq = "TruSeq Nano DNA Prep"
-    else:
-        trueseq = "PI lab prepared library"
-    table1.cell(2,5).text = trueseq
-    table1.cell(2,5).paragraphs[0].runs[0].font.bold = True
-    rc.text = rc.text.replace("{TrueSeq}", trueseq)
-    
-    table1.cell(3,5).text = configAttr2Value['ref']
-    if 'Agilent SureSelect' in trueseq:
-        table1.cell(4,5).text = "UNKNOWN"
-        table1.cell(4,5).paragraphs[0].runs[0].font.bold = True
-
-    table4 = doc.tables[2]
-    table4.cell(1,1).text = "RTA " + RTAVersion
-    table4.cell(1,1).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    table4.cell(1,1).vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    table4.cell(1,1).paragraphs[0].paragraph_format.space_after = Pt(0)
-    	
-    ############################# for plots
-    x=list(summary[summary.columns[0]])
-    y0=list(summary['Total input reads'])
-    y1=list(summary['% Total mapped reads'])
-
-    x_pos=np.arange(len(x))
-
-    fig, ax1 = plt.subplots()
-    ax1.bar(x_pos, y0, align='center', alpha=0.5, label='Total Reads')
-    ax1.set_ylabel('Total Reads')
-    ax1.set_xticks(x_pos)
-    ax1.set_xticklabels(x, rotation=45, ha='right')
-    ax1.set_title('Total Reads & Percent of Mapped Reads', fontsize= 30)
-    ax1.legend(loc=3)
-
-    ax2 = ax1.twinx()
-
-    ax2.plot(x_pos, y1, 'r-o', label='Percent of Mapped Reads')
-    ax2.set_ylabel('Percent of Mapped Reads', color='r')
-    ax2.set_ylim(0,100)
-    ax2.legend(loc=4)
-
-    fig.set_size_inches(12,8)
-    fig.savefig('matplt1.png', dpi=300, bbox_inches='tight')
-
-    plt.show()
-    plt.clf()
-
-    y0=list(summary['% Uniquely mapped reads'])
-
-    if "EXOME" in lqc['Application'][0].upper():
-        y1=list(summary['% of reads on target region'])
-        lb = "Percent Reads Mapped On Target"    
-        y2=list(summary['% of target region with coverage above 20x'])
-        lbb="% of target region with coverage above 20x"
-    else:
-        #y1=list(summary['Mean of raw coverage'])
-        #lb = "Mean of raw coverage"
-        y1=list(summary['Mean of mapped coverage'])
-        lb = "Mean of mapped coverage"
-        y2=list(summary['% of genome with coverage above 20x'])
-        lbb="% of genome with coverage above 20x"    
-
-    plt.plot(x_pos,y0,'b-o', label='Percent of Uniquely mapped reads')
-    plt.plot(x_pos,y1,'r-o', label=lb)
-    plt.plot(x_pos,y2,'g-o', label=lbb)
-
-    plt.xticks(x_pos,x,rotation=45, ha='right')
-
-    plt.ylabel('Percent')
-    plt.title('Mapped Reads Statistics', fontsize= 30)
-    plt.ylim(0,100)
-    plt.legend(loc=4)
-    
-    fig=plt.gcf()
-    fig.set_size_inches(12,8)
-    fig.savefig('matplt2.png', dpi=300, bbox_inches='tight')
-    plt.clf()
-
-    p=doc.tables[3].rows[0].cells[0].add_paragraph()
-    r=p.add_run()
-    r.add_picture('matplt1.png', height=Inches(4))
-
-    p=doc.tables[3].rows[1].cells[0].add_paragraph()
-    r=p.add_run()
-    r.add_picture('matplt2.png', height=Inches(4))
-
-    doc.save(filenm)
-
-    docfile = '/mnt/ccrsf-ifx/Software/scripts/lib/wordreporttemp/ccremail.docx'
+    docfile, seqType = get_document_template(lqc)
     doc = Document(docfile)
-    app = str(lqc['Application'][0])
-    if '_' in PIName:
-        pilast = PIName.replace("_", " ").split()[1]
-    elif ',' in PIName:
-        pilast = PIName.split(', ')[0]
-    else:
-        pilast = PIName
-    ttext = "Mapping:\n\n" + rc.text + "\n\nVariant Calling:\n\n" + rc1.text + "\n\n" + rcGermline.text
 
-    replace_string(doc,"{App}", app)
-    replace_string(doc,"{Flowcell1}", flowcell)
-    replace_string(doc,"Pilast", pilast)
-    replace_string(doc,"{ST}", st)
-    replace_string(doc,"{CSAC}", csac)
-    replace_string(doc,"{Flowcell2}", flowcell)
-    replace_string(doc,"{MT}", instrument)
 
-    doc.paragraphs[14].text = ttext
 
-    rows,columns = summary.shape 
+    plot_total_and_mapped_reads(summary)
+    plot_mapped_reads_statistics(summary, lqc)
+    add_plots_to_doc(doc, 'output_filename.docx')
 
-    doc.tables[0].rows[0].cells[0].add_paragraph(text="\n\nMapping:\n")
+    update_record(csvrecord, excelfile, summary, lqc, readLengths)
 
-    tb=doc.tables[0].rows[0].cells[0].add_table(1, columns)
-    tb.style = 'Table Grid'
 
-    h = list(summary)
-    head = tb.rows[0].cells
-    for idx, name in enumerate(h):
-        paragraph = head[idx].paragraphs[0]
-        run = paragraph.add_run(name)
-        run.bold = True
-
-    for r in range(rows):
-        cells = tb.add_row().cells
-        for col in range(columns):
-            cells[col].text = str(summary.iat[r,col])
-    
-    if vtSomaticFlag == 1: 
-        rows,columns = vt.shape 
-        doc.tables[0].rows[0].cells[0].add_paragraph(text="\n\nSomatic Variant Calling:\n")
-        tb=doc.tables[0].rows[0].cells[0].add_table(1, columns)
-        tb.style = 'Table Grid'
-        h = list(vt)
-        head = tb.rows[0].cells
-        for idx, name in enumerate(h):
-            paragraph = head[idx].paragraphs[0]
-            run = paragraph.add_run(name)
-            run.bold = True
-        for r in range(rows):
-            cells = tb.add_row().cells
-            for col in range(columns):
-                cells[col].text = str(vt.iat[r,col])
-    elif vtSomaticFlag == 2: 
-        rows,columns = vtPaired.shape 
-        doc.tables[0].rows[0].cells[0].add_paragraph(text="\n\nSomatic Variant Calling (Paired):\n")
-        tb=doc.tables[0].rows[0].cells[0].add_table(1, columns)
-        tb.style = 'Table Grid'
-        h = list(vtPaired)
-        head = tb.rows[0].cells
-        for idx, name in enumerate(h):
-            paragraph = head[idx].paragraphs[0]
-            run = paragraph.add_run(name)
-            run.bold = True
-        for r in range(rows):
-            cells = tb.add_row().cells
-            for col in range(columns):
-                cells[col].text = str(vtPaired.iat[r,col])
-        rows,columns = vtTumorOnly.shape 
-        doc.tables[0].rows[0].cells[0].add_paragraph(text="\nSomatic Variant Calling (Tumor-only):\n")
-        tb=doc.tables[0].rows[0].cells[0].add_table(1, columns)
-        tb.style = 'Table Grid'
-        h = list(vtTumorOnly)
-        head = tb.rows[0].cells
-        for idx, name in enumerate(h):
-            paragraph = head[idx].paragraphs[0]
-            run = paragraph.add_run(name)
-            run.bold = True
-        for r in range(rows):
-            cells = tb.add_row().cells
-            for col in range(columns):
-                cells[col].text = str(vtTumorOnly.iat[r,col])
-
-    if vtGermlineFlag == 1: 
-        rows,columns = vtGermline.shape 
-        doc.tables[0].rows[0].cells[0].add_paragraph(text="\n\nGermline Joint Genotyping:\n")
-        tb=doc.tables[0].rows[0].cells[0].add_table(1, columns)
-        tb.style = 'Table Grid'
-        h = list(vtGermline)
-        head = tb.rows[0].cells
-        for idx, name in enumerate(h):
-            paragraph = head[idx].paragraphs[0]
-            run = paragraph.add_run(name)
-            run.bold = True
-        for r in range(rows):
-            cells = tb.add_row().cells
-            for col in range(columns):
-                cells[col].text = str(vtGermline.iat[r,col])
-
-    doc.save(emailfile)
-
-    out = ""
-    out += os.getcwd().split("/")[-1] + ","
-    out += os.path.basename(excelfile).split('.')[0] + ","
-    adate = time.strftime('%m/%d/%y', time.gmtime(os.path.getctime(excelfile)))
-    out += str(adate) + ",cronjob,," + str(adate) + ","
-    #if str(de[de.columns[2]][1]) == "Yield (MBases)":
-    #    gb = str(float(str(de[de.columns[2]][2]).replace(",", ""))/1000)
-    gb = str(float(sum(summary[summary.columns[1]]))/1000)
-    out += gb + ","
-    out += str(len(summary)) + ","
-    out += str(lqc['Application'][0]) + ","
-    if len(readLengths) == 1:
-        out += readLengths[0] + "__0,"
-    elif len(readLengths) == 2:
-            out += readLengths[0] + "__" + readLengths[1] + ","
-    else: 
-        out += "Customized,"
-    out += str(adate) + "\n"
-    #
-    #csvrecord = "/is2/projects/CCR-SF/scratch/illumina/Processing/CCRSFIFX_ANALYSIS/processed.csv"
-    csvrecord = "/mnt/ccrsf-ifx/Report_archive/report_archive_illumina/processed_ccrsfifx.csv"
-    ck = open (csvrecord, 'r')
-    ckk = ck.read()
-    ck.close()
-    if ckk.find(os.path.basename(excelfile).split('.')[0]) > 0:
-        pass
-    else:
-        cr = open (csvrecord, 'a')
-        cr.write(out)
-        cr.close()
 
 if __name__ == "__main__":
     main(sys.argv[1:])
